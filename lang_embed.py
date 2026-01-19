@@ -174,26 +174,28 @@
 
 
 
-from operator import itemgetter
-import numpy as np
 
+import os
+import numpy as np
+import streamlit as st
+
+from dotenv import load_dotenv
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableLambda
-from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.chat_history import BaseChatMessageHistory,InMemoryChatMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory, InMemoryChatMessageHistory
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint, HuggingFaceEmbeddings
-import streamlit as st
-hf_token=st.secrets["HF_TOKEN"]
 
-import os
-from dotenv import load_dotenv
+# -------------------- Config & Secrets --------------------
 load_dotenv()
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
-llmg=ChatHuggingFace(llm=HuggingFaceEndpoint(repo_id='openai/gpt-oss-120b'))
+HF_TOKEN = st.secrets.get("HF_TOKEN") or os.getenv("hf_token") or os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
+# -------------------- UI Header --------------------
+st.set_page_config(page_title="Smart Support Assistant")
+st.title("Smart Support Assistant")
 
+# -------------------- Docs --------------------
 docs = [
     "Steps to reset your password...",
     "How to fix VPN connection...",
@@ -226,72 +228,83 @@ docs = [
     "How to check system requirements and compatibility..."
 ]
 
-documents = [Document(page_content=d) for d in docs]
+# -------------------- Cache heavy initializations --------------------
+@st.cache_resource(show_spinner=False)
+def get_embeddings_and_matrix():
+    os.makedirs("./hf_cache", exist_ok=True)
+    emb = HuggingFaceEmbeddings(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        cache_folder="./hf_cache",
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True}
+    )
+    documents = [Document(page_content=d) for d in docs]
+    splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+    chunks = splitter.split_documents(documents)
+    chunk_texts = [c.page_content for c in chunks]
+    doc_vecs = emb.embed_documents(chunk_texts)
+    doc_mat = np.asarray(doc_vecs, dtype=np.float32)
+    doc_norms = np.linalg.norm(doc_mat, axis=1, keepdims=True) + 1e-12
+    doc_mat_norm = doc_mat / doc_norms
+    return emb, chunks, doc_mat_norm
 
-splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
-chunks = splitter.split_documents(documents)
+@st.cache_resource(show_spinner=False)
+def get_chat_model(hf_token: str | None):
+    if not hf_token:
+        st.error("Missing HF token. Add HF_TOKEN in Streamlit Secrets or set env var 'hf_token'.")
+        st.stop()
+    llm_ep = HuggingFaceEndpoint(
+        repo_id="HuggingFaceH4/zephyr-7b-beta",
+        temperature=0,
+        max_new_tokens=256,
+        huggingfacehub_api_token=hf_token
+    )
+    return ChatHuggingFace(llm=llm_ep)
 
+emb, chunks, doc_mat_norm = get_embeddings_and_matrix()
+llmg = get_chat_model(HF_TOKEN)
 
-
-
-emb = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2",
-)
-
-
-
-chunk_texts = [c.page_content for c in chunks]
-doc_vecs = emb.embed_documents(chunk_texts)
-doc_mat = np.asarray(doc_vecs, dtype=np.float32)
-doc_norms = np.linalg.norm(doc_mat, axis=1, keepdims=True) + 1e-12
-doc_mat_norm = doc_mat / doc_norms
-
-def numpy_retrieve(question: str, k: int = 4):
+# -------------------- Retriever --------------------
+def numpy_retrieve(question: str, k: int = 3):
     q = np.asarray(emb.embed_query(question), dtype=np.float32)
     q = q / (np.linalg.norm(q) + 1e-12)
     sims = doc_mat_norm @ q
     idx = np.argsort(-sims)[:k]
     return [chunks[i] for i in idx]
 
+# -------------------- Prompt & Chain --------------------
 prompt = ChatPromptTemplate.from_messages([
     ("system", "You answer strictly using the provided context."),
     MessagesPlaceholder("chat_history"),
-    ("human",
-     "Context:\n{context}\n\nQuestion:\n{question}\n\n"
-     "If the answer is not in the context, say: \"get out of my motherland\".")
+    ("human", "Context:\n{context}\n\nQuestion:\n{question}\n\nIf the answer is not in the context, say: \"get out of my motherland\".")
 ])
-
 join_docs = RunnableLambda(lambda ds: "\n\n".join(d.page_content for d in ds))
 chain = (prompt | llmg)
 
-store = {}
+# -------------------- History Store --------------------
+if "store" not in st.session_state:
+    st.session_state.store = {}
 
 def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    store = st.session_state.store
     if session_id not in store:
         store[session_id] = InMemoryChatMessageHistory()
     return store[session_id]
 
-
 def send(question: str, session_id: str = "user-1"):
     history = get_session_history(session_id)
-    chat_history = history.messages
     context_docs = numpy_retrieve(question, k=3)
     context = join_docs.invoke(context_docs)
     res = chain.invoke({
         "question": question,
-        "chat_history": chat_history,
+        "chat_history": history.messages,
         "context": context
     })
     history.add_user_message(question)
     history.add_ai_message(res.content)
     return res, context_docs
 
-
-
-
-st.set_page_config(page_title="Smart Support Assistant")
-st.title("Smart Support Assistant")
-
+# -------------------- UI --------------------
 if "session_id" not in st.session_state:
     st.session_state.session_id = "user-1"
 
@@ -310,6 +323,7 @@ for m in history:
         st.markdown(f"**You:** {m.content}")
     else:
         st.markdown(f"**Assistant:** {m.content}")
+``
 
 
 
