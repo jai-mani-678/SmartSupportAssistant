@@ -232,15 +232,15 @@ splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
 chunks = splitter.split_documents(documents)
 
 
+
+
 emb = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2",
-    model_kwargs={
-        "device": "cpu",
-        "cache_folder": "./hf_cache",   
-        "use_auth_token": hf_token     
-    },
+    model_kwargs={"device": "cpu", "cache_folder": "./hf_cache"},
     encode_kwargs={"normalize_embeddings": True}
 )
+
+
 
 chunk_texts = [c.page_content for c in chunks]
 doc_vecs = emb.embed_documents(chunk_texts)
@@ -312,6 +312,7 @@ for m in history:
         st.markdown(f"**You:** {m.content}")
     else:
         st.markdown(f"**Assistant:** {m.content}")
+
 
 
 
