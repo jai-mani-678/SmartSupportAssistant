@@ -237,7 +237,7 @@ emb = HuggingFaceEmbeddings(
     model_kwargs={
         "device": "cpu",
         "cache_folder": "./hf_cache",   
-        "use_auth_token": HF_TOKEN     
+        "use_auth_token": hf_token     
     },
     encode_kwargs={"normalize_embeddings": True}
 )
@@ -312,6 +312,7 @@ for m in history:
         st.markdown(f"**You:** {m.content}")
     else:
         st.markdown(f"**Assistant:** {m.content}")
+
 
 
 
