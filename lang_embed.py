@@ -236,8 +236,6 @@ chunks = splitter.split_documents(documents)
 
 emb = HuggingFaceEmbeddings(
     model_name="sentence-transformers/all-MiniLM-L6-v2",
-    model_kwargs={"device": "cpu", "cache_folder": "./hf_cache"},
-    encode_kwargs={"normalize_embeddings": True}
 )
 
 
@@ -312,6 +310,7 @@ for m in history:
         st.markdown(f"**You:** {m.content}")
     else:
         st.markdown(f"**Assistant:** {m.content}")
+
 
 
 
