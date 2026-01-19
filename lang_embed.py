@@ -184,12 +184,12 @@ from langchain_core.runnables import RunnableLambda
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory,InMemoryChatMessageHistory
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint, HuggingFaceEmbeddings
-
+import streamlit as st
+hf_token=st.secrets["HF_TOKEN"]
 
 import os
 from dotenv import load_dotenv
 load_dotenv()
-os.getenv('hf_token')
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 llmg=ChatHuggingFace(llm=HuggingFaceEndpoint(repo_id='openai/gpt-oss-120b'))
 
@@ -281,7 +281,6 @@ def send(question: str, session_id: str = "user-1"):
 
 
 
-import streamlit as st
 
 st.set_page_config(page_title="Smart Support Assistant")
 st.title("Smart Support Assistant")
@@ -304,3 +303,4 @@ for m in history:
         st.markdown(f"**You:** {m.content}")
     else:
         st.markdown(f"**Assistant:** {m.content}")
+
