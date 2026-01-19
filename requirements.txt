@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+langchain
+langchain-huggingface
+langchain-openai
+streamlit
+langchain-core
+langchain-community
+langchain-text-splitters
+dotenv  
